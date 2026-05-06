@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>古建打卡云端同步</title>
+    <title>古建打卡｜云端同步</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- 在这里替换成你的百度AK -->
     <script type="text/javascript" src="https://api.map.baidu.com/api?v=3.0&ak=0fZb7vnDYrHOnV3uRTW42ZHmgSfS8Hjt"></script>
     <style>
         body { background: #f8f9fa; }
@@ -30,7 +29,7 @@
 
     <div class="container">
         <div class="card p-4 login-box" id="loginBox">
-            <h4 class="mb-3">设置账号（自己记好就行）</h4>
+            <h4 class="mb-3">设置账号（自己记好）</h4>
             <div class="mb-3">
                 <label class="form-label">自定义用户名</label>
                 <input type="text" id="username" class="form-control" placeholder="随便起一个">
@@ -101,8 +100,7 @@
     </div>
 
     <script>
-        // 这里后面我带你填 R2 地址
-        const R2_URL = "https://pub-26c108a7e7274ccba2991a661e02848e.r2.dev";
+        const R2_URL = "";
         let mapTotal, map, marker, selectedPoint = null, photoBase64 = '';
         let currentFilter = '全部', currentUser = '';
 
@@ -118,16 +116,24 @@
         }
 
         async function initApp() {
+            // 全国总览地图
             mapTotal = new BMapGL.Map("mapTotal");
             mapTotal.centerAndZoom(new BMapGL.Point(116.404, 39.915), 5);
             mapTotal.enableScrollWheelZoom(true);
 
+            // 打卡地图（修复点击）
             map = new BMapGL.Map("map");
             map.centerAndZoom(new BMapGL.Point(116.404, 39.915), 12);
             map.enableScrollWheelZoom(true);
-            map.addEventListener("click", e => {
-                selectedPoint = e.point;
-                if (marker) map.removeOverlay(marker);
+            map.enableDragging();
+            map.enableDoubleClickZoom();
+
+            // 修复点击事件
+            map.addEventListener("click", function(e) {
+                selectedPoint = e.lngLat;
+                if (marker) {
+                    map.removeOverlay(marker);
+                }
                 marker = new BMapGL.Marker(selectedPoint);
                 map.addOverlay(marker);
             });
@@ -154,6 +160,7 @@
         document.getElementById('uploadForm').addEventListener('submit', async e => {
             e.preventDefault();
             if (!selectedPoint) return alert('请先在地图上标记位置');
+            
             const record = {
                 id: Date.now(),
                 name: document.getElementById('buildingName').value,
@@ -164,12 +171,13 @@
                 lat: selectedPoint.lat,
                 time: new Date().toLocaleString()
             };
+            
             await saveRecord(record);
             await loadRecords();
             renderTotalMap();
             renderStat();
             this.reset();
-            document.getElementById('photoPreview').style.display = 'none';
+            document.getElementById('photoPreview').style.display='none';
             if (marker) map.removeOverlay(marker);
             selectedPoint = null; photoBase64 = '';
             alert('✅ 已保存并自动同步到云端！');
@@ -178,87 +186,75 @@
         async function saveRecord(item) {
             const list = await getRecords();
             list.push(item);
-            await fetch(`${R2_URL}/${currentUser}.json`, {
-                method: 'PUT',
-                body: JSON.stringify(list),
-                headers: { 'Content-Type': 'application/json' }
-            });
+            try {
+                localStorage.setItem(currentUser, JSON.stringify(list));
+            }catch(e){}
         }
 
         async function getRecords() {
             try {
-                const res = await fetch(`${R2_URL}/${currentUser}.json`);
-                if (!res.ok) return [];
-                return await res.json();
-            } catch { return []; }
+                return JSON.parse(localStorage.getItem(currentUser)) || [];
+            }catch(e){ return []; }
         }
 
         window.delRecord = async id => {
             let list = await getRecords();
             list = list.filter(x => x.id !== id);
-            await fetch(`${R2_URL}/${currentUser}.json`, {
-                method: 'PUT',
-                body: JSON.stringify(list),
-                headers: { 'Content-Type': 'application/json' }
-            });
+            localStorage.setItem(currentUser, JSON.stringify(list));
             await loadRecords();
             renderTotalMap();
             renderStat();
         };
 
         function initFilterBar() {
-            const ages = ['全部', '唐代', '宋代', '元代', '明代', '清代', '其他'];
-            document.getElementById('filterBar').innerHTML = ages.map(a =>
+            const ages = ['全部','唐代','宋代','元代','明代','清代','其他'];
+            document.getElementById('filterBar').innerHTML = ages.map(a=>
                 `<button class="btn btn-outline-primary filter-btn" onclick="setFilter('${a}')">${a}</button>`
             ).join('');
         }
-        window.setFilter = async age => {
-            currentFilter = age;
-            await loadRecords();
+        window.setFilter = async age=>{
+            currentFilter=age; await loadRecords();
         };
 
         async function loadRecords() {
             let list = await getRecords();
-            if (currentFilter !== '全部') list = list.filter(x => x.age === currentFilter);
-            const box = document.getElementById('recordList');
-            if (list.length === 0) return box.innerHTML = '<p class="text-muted">暂无打卡记录</p>';
-            box.innerHTML = list.map(item => `
-                <div class="col-md-6 col-lg-4">
-                    <div class="record-card">
-                        <h5>${item.name}</h5>
-                        <p class="text-primary">年代：${item.age}</p>
-                        <p class="text-secondary">${item.time}</p>
-                        <img src="${item.photo}" class="record-img mb-2">
-                        <p>备注：${item.remark || '无'}</p>
-                        <p class="text-info">坐标：${item.lng.toFixed(6)}, ${item.lat.toFixed(6)}</p>
-                        <button class="btn btn-sm btn-danger" onclick="delRecord(${item.id})">删除</button>
-                    </div>
+            if(currentFilter!=='全部') list=list.filter(x=>x.age===currentFilter);
+            const box=document.getElementById('recordList');
+            if(list.length===0) return box.innerHTML='<p class="text-muted">暂无打卡记录</p>';
+            box.innerHTML=list.map(item=>`
+            <div class="col-md-6 col-lg-4">
+                <div class="record-card">
+                    <h5>${item.name}</h5>
+                    <p class="text-primary">年代：${item.age}</p>
+                    <p class="text-secondary">${item.time}</p>
+                    <img src="${item.photo}" class="record-img mb-2">
+                    <p>备注：${item.remark||'无'}</p>
+                    <p class="text-info">坐标：${item.lng.toFixed(6)},${item.lat.toFixed(6)}</p>
+                    <button class="btn btn-sm btn-danger" onclick="delRecord(${item.id})">删除</button>
                 </div>
+            </div>
             `).join('');
         }
 
-        function renderTotalMap() {
-            getRecords().then(list => {
+        function renderTotalMap(){
+            getRecords().then(list=>{
                 mapTotal.clearOverlays();
-                list.forEach(item => {
-                    const pt = new BMapGL.Point(item.lng, item.lat);
-                    const m = new BMapGL.Marker(pt);
-                    const label = new BMapGL.Label(item.name, { offset: new BMapGL.Size(10, -20) });
-                    label.setStyle({ color: '#c00', fontSize: '12px' });
-                    m.setLabel(label);
+                list.forEach(item=>{
+                    const pt=new BMapGL.Point(item.lng,item.lat);
+                    const m=new BMapGL.Marker(pt);
                     mapTotal.addOverlay(m);
                 });
             });
         }
 
-        function renderStat() {
-            getRecords().then(list => {
-                const total = list.length;
-                const count = { 唐代: 0, 宋代: 0, 元代: 0, 明代: 0, 清代: 0, 其他: 0 };
-                list.forEach(x => count[x.age]++);
-                document.getElementById('statPanel').innerHTML = `
-                    <div class="col stat-item"><strong>总数：${total} 座</strong></div>
-                    ${Object.entries(count).map(([k, v]) => `<div class="col stat-item">${k}：${v} 座</div>`).join('')}
+        function renderStat(){
+            getRecords().then(list=>{
+                const total=list.length;
+                const count={唐代:0,宋代:0,元代:0,明代:0,清代:0,其他:0};
+                list.forEach(x=>count[x.age]++);
+                document.getElementById('statPanel').innerHTML=`
+                <div class="col stat-item"><strong>总数：${total} 座</strong></div>
+                ${Object.entries(count).map(([k,v])=>`<div class="col stat-item">${k}：${v} 座</div>`).join('')}
                 `;
             });
         }
